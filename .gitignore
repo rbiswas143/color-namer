@@ -1,0 +1,9 @@
+.idea
+__pycache__
+*.swp
+*.pyc
+*cache*
+.ipynb*
+logs
+private
+datasets
