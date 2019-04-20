@@ -5,7 +5,6 @@ import sys
 import config
 
 # Create log directory if it does not exist
-print(config.LOG_DIR)
 os.makedirs(config.LOG_DIR, exist_ok=True)
 
 # File Handler
