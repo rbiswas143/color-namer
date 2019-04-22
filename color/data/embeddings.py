@@ -1,5 +1,7 @@
 import os
+import csv
 import numpy as np
+import pandas as pd
 
 
 def _get_embeddings_path(size):
@@ -13,11 +15,7 @@ def _get_embeddings_path(size):
 
 def load_embeddings(size=50):
     path = _get_embeddings_path(size)
-    vocab = []
-    emb = []
-    with open(path, 'r') as x:
-        for line in x:
-            comps = line.split()
-            vocab.append(comps[0])
-            emb.append(comps[1:])
-    return vocab, np.array(emb)
+    emb_df = pd.read_csv(path, sep=' ', engine='c', encoding='utf-8', quoting=csv.QUOTE_NONE, header=None)
+    vocab = emb_df[0]
+    emb_df.drop(0, axis=1, inplace=True)
+    return vocab, emb_df.astype('float').values

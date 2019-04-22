@@ -30,4 +30,6 @@ def load_color_names():
     })
     colors['name'] = colors['name'].apply(lambda n: re.sub('\(SW.*\)', '', n).strip())
 
-    return colors
+    names = colors['name'].apply(lambda n: n.lower())
+    rgb = colors[['r', 'g', 'b']].astype('int')
+    return names, rgb.values

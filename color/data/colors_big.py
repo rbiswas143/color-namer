@@ -20,4 +20,6 @@ def load_color_names():
     colors = colors.drop(columns=['hex', 'luminance'])
     colors = colors.rename(columns={'rgb.r': 'r', 'rgb.g': 'g', 'rgb.b': 'b'})
 
-    return colors
+    names = colors['name'].apply(lambda n: n.lower())
+    rgb = colors[['r', 'g', 'b']].astype('int')
+    return names, rgb.values
