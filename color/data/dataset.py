@@ -44,11 +44,12 @@ class Dataset(D.Dataset):
 
     def __init__(self, **kwargs):
         self.params = {
+            'max_words': None,
             'dataset': 'big',  # 'small', 'big'
             'emb_len': 50,  # 50, 100, 200, 300
             'normalize_rgb': False,
             'use_cuda': False,
-            'batch_size': 1,  # Currently only 1 is supported
+            'batch_size': 1,
             'cv_split': 0.1,
             'test_split': 0,
             'num_workers': 0,
@@ -56,19 +57,22 @@ class Dataset(D.Dataset):
         }
         utils.dict_update_existing(self.params, kwargs)
 
+        # Device
         if self.params['use_cuda'] and not torch.cuda.is_available():
             raise Exception('CUDA is not available')
         self.device = torch.device('cuda' if self.params['use_cuda'] else 'cpu')
 
+        # Process colors
         log.info('Loading colors dataset')
         colors_ds = colors_small if self.params['dataset'] == 'small' else colors_big
-        self.color_names, self.color_rgb = colors_ds.load_color_names()
+        self.color_names, self.color_rgb = colors_ds.load_color_names(max_words=self.params['max_words'])
         log.debug('Colors loaded. Dataset dimensions: %s', self.color_rgb.shape)
         self.color_rgb = torch.tensor(self.color_rgb).float().to(self.device)
         if self.params['normalize_rgb']:
             log.debug('Normalizing colors')
             self.color_rgb /= 256
 
+        # Process embeddings
         log.info('Loading embeddings')
         self.vocab, self.embeddings = emb_data.load_embeddings(self.params['emb_len'])
         log.debug('Embeddings loaded. Embedding Dimensions: %s', self.embeddings.shape)
@@ -78,6 +82,7 @@ class Dataset(D.Dataset):
             for name in self.color_names
         ]
 
+        # Pad embeddings
         if self.params['pad_len'] is not None:
             log.info('Padding embeddings for color names')
             for i in range(len(self.color_name_embs)):
@@ -89,6 +94,7 @@ class Dataset(D.Dataset):
                 if pad_len > 0:
                     self.color_name_embs[i] = F.pad(self.color_name_embs[i], [0, 0, 0, pad_len])
 
+        # Data split
         log.info('Splitting dataset')
         self.train_set, self.cv_set, self.test_set = self.split()
         log.debug('Dataset Split: Train(%d), CV(%d), Test(%d)',

@@ -30,14 +30,21 @@ class ModelTraining:
         if self.params['save_dir'] is None or os.path.isdir(self.params['save_dir']):
             raise Exception('Save directory is not specified or it already exists')
 
+        # Validate
+        self._validate()
+
+        # Device
         self.device = torch.device('cuda' if self.params['use_cuda'] else 'cpu')
 
+        # Model
         self.model = model.to(self.device)
         self.loss_fn = loss_fn
         self.optimizer = optimizer
 
+        # Dataset
         self.dataset = dataset
 
+        # Training cache
         self.epoch_train_losses = []
         self.epoch_cv_losses = []
         self.epoch_durations = []
@@ -45,11 +52,13 @@ class ModelTraining:
     def train(self):
         for epoch in range(self.params['curr_epoch'], self.params['curr_epoch'] + self.params['num_epochs']):
 
+            # Progress bar
             progress_bar = (progress.ProgressBar(len(self.dataset.train_set) + len(self.dataset.cv_set),
                                                  status='Training epoch {}'.format(epoch)) if self.params[
                 'show_progress'] else None)
             curr_progress = 0
 
+            # Start epoch timer
             time_start = time.time()
 
             # Train
@@ -61,11 +70,13 @@ class ModelTraining:
                 loss.backward()
                 self.optimizer.step()
 
+                # Update progress bar
                 if progress_bar is not None:
                     curr_progress += 1
                     progress_bar.update(curr_progress)
 
-            self.epoch_train_losses.append(float(loss_sum) / len(self.dataset.train_set) if len(self.dataset.train_set) > 0 else 0)
+            self.epoch_train_losses.append(
+                float(loss_sum) / len(self.dataset.train_set) if len(self.dataset.train_set) > 0 else 0)
 
             # CV
             if self.params['do_cv']:
@@ -75,6 +86,7 @@ class ModelTraining:
                         loss = self.cv_batch(*batch)
                         loss_sum += loss
 
+                        # Update progress bar
                         if progress_bar is not None:
                             curr_progress += 1
                             progress_bar.update(curr_progress)
@@ -82,12 +94,15 @@ class ModelTraining:
                     self.epoch_cv_losses.append(
                         float(loss_sum) / len(self.dataset.cv_set) if len(self.dataset.cv_set) > 0 else 0)
 
+            # Compute epoch time
             time_end = time.time()
             self.epoch_durations.append(time_end - time_start)
 
+            # Complete progress bar
             if progress_bar is not None:
                 progress_bar.complete(status=self.epoch_results_message(epoch))
 
+            # Plot losses
             if self.params['draw_plots']:
                 self.draw_plots(epoch)
 
@@ -102,6 +117,11 @@ class ModelTraining:
 
     def draw_plots(self, epoch):
         raise NotImplementedError()
+
+    def _validate(self):
+        save_dir = self.params['save_dir']
+        if os.path.isdir(save_dir):
+            raise Exception('Save directory already exists: {}'.format(save_dir))
 
     def save(self):
         save_dir = self.params['save_dir']

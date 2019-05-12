@@ -12,7 +12,7 @@ def _get_dataset_path():
     return dataset_path
 
 
-def load_color_names():
+def load_color_names(max_words=None):
     with open(_get_dataset_path(), 'r') as x:
         small = json.load(x)
     colors = []
@@ -30,6 +30,11 @@ def load_color_names():
     })
     colors['name'] = colors['name'].apply(lambda n: re.sub('\(SW.*\)', '', n).strip())
 
-    names = colors['name'].apply(lambda n: n.lower())
+    # Filter out long names
+    if max_words is not None:
+        num_words = colors['name'].apply(lambda c: len(c.split()))
+        colors = colors[num_words <= max_words].reset_index()
+
+    names = colors['name'].apply(lambda n: n.lower().strip())
     rgb = colors[['r', 'g', 'b']].astype('int')
     return names, rgb.values

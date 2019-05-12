@@ -10,16 +10,18 @@ import color.utils.utils as utils
 from log_utils import log
 
 
-def load_model_params(save_dir):
-    # Model weights
-    weights_path = os.path.join(save_dir, 'model_weights.pt')
-    weights = torch.load(weights_path)
-
+def load_model_params(save_dir, include_weights=True):
     # Hyperparams
     params_path = os.path.join(save_dir, 'model_params.pickle')
     with open(params_path, 'rb') as x:
         params = pickle.load(x)
 
+    if not include_weights:
+        return params
+
+    # Model weights
+    weights_path = os.path.join(save_dir, 'model_weights.pt')
+    weights = torch.load(weights_path)
     return weights, params
 
 
@@ -110,22 +112,22 @@ class ColorPredictorCNN(ColorPredictorBase):
         super(ColorPredictorCNN, self).__init__()
         self.params.update({
             'name': 'CNN',
-            'num_emb': 3,
+            'max_words': 3,
             'num_conv_layers': 2,
             'conv_kernel_size': 3,
             'conv_stride': 1,
             'pool_kernel_size': 2,
             'pool_stride': 2,
             'num_linear_layers': 1,
-            'linear_size_reduc': 2
+            'linear_size_reduce': 2
         })
-        self.params.update(kwargs)
+        utils.dict_update_existing(self.params, kwargs)
 
         # Define Conv + Pool blocks
         self.conv_layers = []
         self.pool_layers = []
         inp_len, inp_channels, out_channels = (
-            self.params['emb_dim'], self.params['num_emb'], self.params['num_emb'] * 2)
+            self.params['emb_dim'], self.params['max_words'], self.params['max_words'] * 2)
         for l in range(self.params['num_conv_layers']):
             conv = nn.Conv1d(inp_channels, out_channels,
                              kernel_size=self.params['conv_kernel_size'],
@@ -145,13 +147,13 @@ class ColorPredictorCNN(ColorPredictorBase):
         # Define linear layers
         self.linear_layers = []
         in_feature = inp_len * inp_channels
-        out_feature = round(in_feature / self.params['linear_size_reduc'])
+        out_feature = round(in_feature / self.params['linear_size_reduce'])
         for l in range(self.params['num_linear_layers']):
             assert out_feature >= 3
             linear = nn.Linear(in_feature, out_feature)
             self.add_module('linear{}'.format(l + 1), linear)
             self.linear_layers.append(linear)
-            in_feature, out_feature = out_feature, round(out_feature / self.params['linear_size_reduc'])
+            in_feature, out_feature = out_feature, round(out_feature / self.params['linear_size_reduce'])
         out_feature = in_feature
 
         # Final linear layer
@@ -193,9 +195,9 @@ class ColorPredictionTraining(training.ModelTraining):
 
 
 def train():
-    emb_dim = 50
-    dataset = color_dataset.Dataset(dataset='small', emb_len=emb_dim, normalize_rgb=True,
-                                    pad_len=4, batch_size=1, use_cuda=True, )
+    emb_dim = 200
+    dataset = color_dataset.Dataset(max_words=None, dataset='big', emb_len=emb_dim, normalize_rgb=True,
+                                    pad_len=None, batch_size=1, use_cuda=True)
 
     model_key = 'lstm'
     if model_key == 'lstm':
@@ -205,8 +207,12 @@ def train():
         model = ColorPredictorRNN(emb_dim=emb_dim, hidden_dim=emb_dim, num_layers=2, dropout=0, nonlinearity='relu',
                                   lr=0.1, momentum=0.9, weight_decay=0.0001)
     elif model_key == 'cnn':
-        model = ColorPredictorRNN(emb_dim=emb_dim,
-                                  lr=0.1, momentum=0.9, weight_decay=0.0001)
+        model = ColorPredictorCNN(name='cnn_test', max_words=3,
+                                  num_conv_layers=1, conv_kernel_size=7, conv_stride=1,
+                                  pool_kernel_size=9, pool_stride=1,
+                                  num_linear_layers=1, linear_size_reduce=1,
+                                  lr=0.5, weight_decay=1e-05, lr_decay=(1, 0.9337531782245498), momentum=0.8)
+        print(model)
     else:
         raise Exception('Invalid model key: {}'.format(model_key))
 
@@ -216,10 +222,10 @@ def train():
     optimizer = model.get_optimizer()
 
     save_dir = utils.get_rel_path(__file__, '..', '..', 'trained_models',
-                                  '{}_{}'.format(model.name, utils.get_unique_key()))
+                                  '{}_{}'.format(model.params['name'], utils.get_unique_key()))
     trainer = ColorPredictionTraining(
         model, loss_fn, optimizer, dataset,
-        num_epochs=20, draw_plots=True, show_progress=True,
+        num_epochs=20, draw_plots=False, show_progress=True,
         use_cuda=True, save_dir=save_dir
     )
     trainer.train()
@@ -227,4 +233,8 @@ def train():
 
 
 if __name__ == '__main__':
-    train()
+    try:
+        train()
+    except Exception:
+        log.exception('Training failed')
+        raise
