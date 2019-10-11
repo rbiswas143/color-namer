@@ -49,7 +49,7 @@ def load_model_configs(config_path):
 
 
 if __name__ == '__main__':
-    hp_name = 'predict_color_lstm_r2'
+    hp_name = 'predict_name_rnn_r3_grid'
     config_path = os.path.join(hp_dir_base, hp_name, 'hp_config.pickle')
     hp_config = load_model_configs(config_path)
     run_models(hp_config)

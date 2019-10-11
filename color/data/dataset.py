@@ -54,6 +54,8 @@ class Dataset(D.Dataset):
             'test_split': 0,
             'num_workers': 0,
             'pad_len': None,
+            'var_seq_len': False,
+            'add_stop_word': False
         }
         utils.dict_update_existing(self.params, kwargs)
 
@@ -75,6 +77,9 @@ class Dataset(D.Dataset):
         # Process embeddings
         log.info('Loading embeddings')
         self.vocab, self.embeddings = emb_data.load_embeddings(self.params['emb_len'])
+        if self.params['add_stop_word']:
+            self.vocab[self.vocab.index[-1] + 1] = 'STOP_WORD'
+            self.embeddings = np.concatenate((self.embeddings, np.ones((1, self.params['emb_len']))), axis=0)
         log.debug('Embeddings loaded. Embedding Dimensions: %s', self.embeddings.shape)
         self.vocab_dict = {v: i for i, v in enumerate(self.vocab)}
         self.color_name_embs = [
@@ -117,9 +122,21 @@ class Dataset(D.Dataset):
         train_len = len(self) - cv_len - test_len
         return D.random_split(self, (train_len, cv_len, test_len))
 
-    def get_subset_loader(self, subset):
-        return D.DataLoader(subset, batch_size=self.params['batch_size'],
-                            shuffle=True, num_workers=self.params['num_workers'])
+    def get_subset_loader(dataset, subset):
+
+        class CustomDataLoader(D.DataLoader):
+            def __iter__(dataloader):
+                loader = super(CustomDataLoader, dataloader).__iter__()
+                for rgb, embs, names in loader:
+                    if dataset.params['add_stop_word']:
+                        stop_emb = torch.ones((embs.shape[0], 1, embs.shape[2])).to(dataset.device)
+                        embs = torch.cat((embs, stop_emb), dim=1)
+                    if dataset.params['var_seq_len']:
+                        embs = embs.view(embs.shape[1], embs.shape[0], embs.shape[2])
+                    yield rgb, embs, names
+
+        return CustomDataLoader(subset, batch_size=dataset.params['batch_size'],
+                                shuffle=True, num_workers=dataset.params['num_workers'])
 
     def save(self, save_dir):
         # Save params
