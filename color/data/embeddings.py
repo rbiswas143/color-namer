@@ -5,6 +5,8 @@ import pandas as pd
 
 
 def _get_embeddings_path(size):
+    # Embedding path is computed relative to the location of this script
+    # Embedding size determines the exact name of the embedding file
     if size not in [50, 100, 200, 300]:
         raise Exception('Invalid embedding size: {}'.format(size))
     source_path = os.path.dirname(os.path.abspath(__file__))
@@ -14,6 +16,11 @@ def _get_embeddings_path(size):
 
 
 def load_embeddings(size=50):
+    """
+    Load and process Glove word embeddings
+    :param size: Length of each embedding. Must be in (50, 100, 200, 300)
+    :return: (Words as a Series, Embeddings as a Float Ndarray)
+    """
     path = _get_embeddings_path(size)
     emb_df = pd.read_csv(path, sep=' ', engine='c', encoding='utf-8', quoting=csv.QUOTE_NONE, header=None)
     vocab = emb_df[0]
