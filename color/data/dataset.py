@@ -6,7 +6,6 @@ import torch.utils.data as D
 import torch.nn.functional as F
 
 from log_utils import log
-
 import color.data.embeddings as emb_data
 import color.data.colors_small as colors_small
 import color.data.colors_big as colors_big
@@ -14,18 +13,39 @@ import color.utils.utils as utils
 
 
 def to_embeddings(sentence, vocab_dict, all_emb):
+    """
+    Covert a sentence to an Ndarray of word embeddings
+    Words in the sentence are looked up in the vocab dictionary for their index, which is then used
+    to fetch the corresponding embeddings. mbeddings for out of vocab words are initialized randomly
+    :param sentence: String of space delimited words
+    :param vocab_dict: Word to index mapping dictionary
+    :param all_emb: Embedding matrix
+    :return: Ndarray of computed embedding for the sentence
+    """
+
+    # Alocate embedding Ndarray for the sentence
     words = sentence.split()
     filtered = np.ndarray((len(words), all_emb.shape[1]), dtype=np.float)
+
     for i, w in enumerate(words):
         if w in vocab_dict:
+            # Word found in vocab. Lookup embedding
             filtered[i] = all_emb[vocab_dict[w]]
         else:
-            # Assign random embedding to unknown words
+            # Assign random embedding to out-of-vocab word
+            # Random embedding should have a similar distribution to the embedding matrix
             filtered[i] = np.random.rand(all_emb.shape[1]) - 0.5
+
     return filtered
 
 
 def load_dataset_params(save_dir):
+    """
+    Loads the parameters that were used to create the dataset along with the created partitions
+    :param save_dir: Where the datset was saved
+    :return: (params dictionary, array of partitions)
+    """
+
     # Save params
     full_path = os.path.join(save_dir, 'dataset_params.pickle')
     with open(full_path, 'rb') as x:
@@ -37,12 +57,15 @@ def load_dataset_params(save_dir):
         full_path = os.path.join(save_dir, partition_path)
         with open(full_path, 'r') as x:
             partitions.append([line.strip() for line in x])
+
     return params, partitions
 
 
 class Dataset(D.Dataset):
 
     def __init__(self, **kwargs):
+
+        # Dataset configuration
         self.params = {
             'max_words': None,
             'dataset': 'big',  # 'small', 'big'
