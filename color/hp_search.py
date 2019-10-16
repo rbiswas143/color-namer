@@ -31,7 +31,8 @@ def run_models(hp_config=default_config):
         hp_dir = os.path.join(hp_dir_base, hp_config['hp_name'])
         hp_config['training_params']['save_dir'] = os.path.join(hp_dir, model_params['name'])
 
-        trainer = Trainer(model, loss_fn, optimizer, dataset, **hp_config['training_params'])
+        trainer = Trainer(model, loss_fn, optimizer, dataset, plotter_env=hp_config['hp_name'],
+                          **hp_config['training_params'])
 
         try:
             trainer.train()

@@ -27,7 +27,8 @@ class ModelTraining:
             'show_progress': True,  # Render command line progress bar or not
             'do_cv': True,  # Do cross-validation or not
             'use_cuda': True,  # Use GPU or not
-            'save_dir': None  # Existing directory where the model will be saved
+            'save_dir': None,  # Existing directory where the model will be saved
+            'plotter_env': None,  # Vizdom environment in which to render the plots
         }
         utils.dict_update_existing(self.params, kwargs)
 

@@ -122,8 +122,10 @@ class NamePredictionTraining(training.ModelTraining):
 
     def __init__(self, model, loss_fn, optimizer, dataset, **kwargs):
         super(NamePredictionTraining, self).__init__(model, loss_fn, optimizer, dataset, **kwargs)
-        self.plotter = (plotter.MSEPlotter(name=None if model.params['name'] is None else model.params['name'])
-                        if self.params['draw_plots'] else None)
+        self.plotter = plotter.MSEPlotter(
+            name=None if model.params['name'] is None else model.params['name'],
+            env=self.params['plotter_env']
+        ) if self.params['draw_plots'] else None
 
     def epoch_results_message(self, epoch):
         return 'Epoch {} | Train Loss: {:2f} | CV Loss: {:2f} | Time: {}s'.format(
