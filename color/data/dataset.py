@@ -1,9 +1,8 @@
 import os
 import pickle
+from collections import namedtuple
 import numpy as np
-import torch
 import torch.utils.data as D
-import torch.nn.functional as F
 
 from log_utils import log
 import color.data.embeddings as emb_data
@@ -20,10 +19,10 @@ def to_embeddings(sentence, vocab_dict, all_emb):
     :param sentence: String of space delimited words
     :param vocab_dict: Word to index mapping dictionary
     :param all_emb: Embedding matrix
-    :return: Ndarray of computed embedding for the sentence
+    :return: Ndarray of computed embedding for the sentence. Shape (num_words, embedding_length)
     """
 
-    # Alocate embedding Ndarray for the sentence
+    # Allocate embedding Ndarray for the sentence
     words = sentence.split()
     filtered = np.ndarray((len(words), all_emb.shape[1]), dtype=np.float)
 
@@ -67,76 +66,91 @@ class Dataset(D.Dataset):
 
         # Dataset configuration
         self.params = {
-            'max_words': None,
-            'dataset': 'big',  # 'small', 'big'
-            'emb_len': 50,  # 50, 100, 200, 300
-            'normalize_rgb': False,
-            'use_cuda': False,
-            'batch_size': 1,
-            'cv_split': 0.1,
-            'test_split': 0,
-            'num_workers': 0,
-            'pad_len': None,
-            'var_seq_len': False,
-            'add_stop_word': False
+            'dataset': 'big',  # Color dataset type: 'small', 'big'
+            'emb_len': 50,  # Glove embedding length: 50, 100, 200, 300
+
+            'normalize_rgb': False,  # Should the rgb values be normalized
+            'max_words': None,  # Restrict no of words in colors dataset
+            'pad_len': None,  # To train variable length sequences in batches, we can pad them to same length
+            'add_stop_word': False,  # Stop word embedding is added to each color name embedding and embedding matrix
+
+            'create_partitions': True,  # Whether to split the dataset into train, cv, and test sets
+            'cv_split': 0.1,  # Fraction of the dataset to be used for Cross Validation
+            'test_split': 0,  # Fraction of the dataset to be added to the Test Set
         }
         utils.dict_update_existing(self.params, kwargs)
 
-        # Device
-        if self.params['use_cuda'] and not torch.cuda.is_available():
-            raise Exception('CUDA is not available')
-        self.device = torch.device('cuda' if self.params['use_cuda'] else 'cpu')
-
-        # Process colors
+        # Load colors dataset
         log.info('Loading colors dataset')
         colors_ds = colors_small if self.params['dataset'] == 'small' else colors_big
         self.color_names, self.color_rgb = colors_ds.load_color_names(max_words=self.params['max_words'])
         log.debug('Colors loaded. Dataset dimensions: %s', self.color_rgb.shape)
-        self.color_rgb = torch.tensor(self.color_rgb).float().to(self.device)
+
+        # Process colors dataset
         if self.params['normalize_rgb']:
             log.debug('Normalizing colors')
-            self.color_rgb /= 256
+            self.color_rgb = self.color_rgb / 256
 
-        # Process embeddings
+        # Load embeddings
         log.info('Loading embeddings')
         self.vocab, self.embeddings = emb_data.load_embeddings(self.params['emb_len'])
         if self.params['add_stop_word']:
             self.vocab[self.vocab.index[-1] + 1] = 'STOP_WORD'
             self.embeddings = np.concatenate((self.embeddings, np.ones((1, self.params['emb_len']))), axis=0)
         log.debug('Embeddings loaded. Embedding Dimensions: %s', self.embeddings.shape)
+
+        # Create vocab dictionary, a word to index mapping for each word in the embedding vocab
         self.vocab_dict = {v: i for i, v in enumerate(self.vocab)}
+
+        # Convert each color name string to corresponding embedding
         self.color_name_embs = [
-            torch.tensor(to_embeddings(name, self.vocab_dict, self.embeddings)).float().to(self.device)
+            to_embeddings(name, self.vocab_dict, self.embeddings)
             for name in self.color_names
         ]
 
-        # Pad embeddings
+        # Append stop word to each embedding
+        if self.params['add_stop_word']:
+            self.color_name_embs = [
+                np.concatenate((emb, np.ones((1, self.params['emb_len']))), axis=0)
+                for emb in self.color_name_embs
+            ]
+
+        # Pad embeddings to specified length
         if self.params['pad_len'] is not None:
             log.info('Padding embeddings for color names')
             for i in range(len(self.color_name_embs)):
+
+                # Determine embedding length
                 emb_len = self.color_name_embs[i].shape[0]
                 if emb_len > self.params['pad_len']:
+                    # Embedding length should not be greater than pad length
                     raise Exception(
                         'Embedding length [{}] > Padding Length [{}]'.format(emb_len, self.params['pad_len']))
-                pad_len = self.params['pad_len'] - emb_len
-                if pad_len > 0:
-                    self.color_name_embs[i] = F.pad(self.color_name_embs[i], [0, 0, 0, pad_len])
 
-        # Data split
-        log.info('Splitting dataset')
-        self.train_set, self.cv_set, self.test_set = self.split()
-        log.debug('Dataset Split: Train(%d), CV(%d), Test(%d)',
-                  len(self.train_set), len(self.cv_set), len(self.test_set))
-        self.train_loader = self.get_subset_loader(self.train_set)
-        self.cv_loader = self.get_subset_loader(self.cv_set)
+                # Determine number of padding words needed
+                pad_len = self.params['pad_len'] - emb_len
+
+                # Pad with zeros
+                if pad_len > 0:
+                    self.color_name_embs[i] = np.pad(self.color_name_embs[i], [0, 0, 0, pad_len])
+
+        # Create train, cv and test partitions
+        if self.params['create_partitions']:
+            log.info('Splitting dataset')
+            self.train_set, self.cv_set, self.test_set = self._split_dataset()
+            log.debug('Dataset Split: Train(%d), CV(%d), Test(%d)',
+                      len(self.train_set), len(self.cv_set), len(self.test_set))
+        else:
+            log.info('Random partitions were not created')
 
     def __len__(self):
         return len(self.color_rgb)
 
     def __getitem__(self, idx):
+        """Tuple of rgb value, color name as embedding, color name as string"""
         return self.color_rgb[idx], self.color_name_embs[idx], self.color_names[int(idx)]
 
-    def split(self):
+    def _split_dataset(self):
         cv = self.params['cv_split']
         test = self.params['test_split']
         assert cv >= 0 and test >= 0 and cv + test <= 1
@@ -145,35 +159,71 @@ class Dataset(D.Dataset):
         train_len = len(self) - cv_len - test_len
         return D.random_split(self, (train_len, cv_len, test_len))
 
-    def get_subset_loader(dataset, subset):
-
-        class CustomDataLoader(D.DataLoader):
-            def __iter__(dataloader):
-                loader = super(CustomDataLoader, dataloader).__iter__()
-                for rgb, embs, names in loader:
-                    if dataset.params['add_stop_word']:
-                        stop_emb = torch.ones((embs.shape[0], 1, embs.shape[2])).to(dataset.device)
-                        embs = torch.cat((embs, stop_emb), dim=1)
-                    if dataset.params['var_seq_len']:
-                        embs = embs.view(embs.shape[1], embs.shape[0], embs.shape[2])
-                    yield rgb, embs, names
-
-        return CustomDataLoader(subset, batch_size=dataset.params['batch_size'],
-                                shuffle=True, num_workers=dataset.params['num_workers'])
-
     def save(self, save_dir):
+        """Persist the dataset parameters and partitions"""
+
         # Save params
         full_path = os.path.join(save_dir, 'dataset_params.pickle')
         with open(full_path, 'wb') as x:
             pickle.dump(self.params, x)
 
-        # Save partitions
+        # Each partition is persisted saved as a dataset index and color name pair
+        # Dataset index can be used to re-create the partitons
+        color_idx_lookup = {name: idx for idx, (_, _, name) in enumerate(self)}
         for partition, partition_path in [
             (self.train_set, 'train_partition.txt'),
             (self.cv_set, 'cv_partition.txt'),
             (self.test_set, 'test_partition.txt'),
         ]:
             full_path = os.path.join(save_dir, partition_path)
-            color_names = [name for _, _, name in partition]
+            color_names = ['{},{}'.format(color_idx_lookup[name], name) for _, _, name in partition]
             with open(full_path, 'w') as x:
                 x.write('\n'.join(color_names))
+
+    @staticmethod
+    def load(save_dir):
+        """Recreate dataset from persisted parameters and partitions"""
+
+        # Load params
+        full_path = os.path.join(save_dir, 'dataset_params.pickle')
+        with open(full_path, 'rb') as x:
+            params = pickle.load(x)
+
+        # Load color index for each persisted partiton partition
+        partitions = []
+        for partition_path in ['train_partition.txt', 'cv_partition.txt', 'test_partition.txt']:
+            full_path = os.path.join(save_dir, partition_path)
+            with open(full_path, 'r') as x:
+                partitions.append([int(line.strip().split(',')[0]) for line in x])
+        Partitions = namedtuple('Partitions', ('train', 'cv', 'test'))
+        partitions = Partitions(*partitions)
+
+        # Re-create dataset and partitions
+        params['create_partitions'] = False  # Skip creating partitions randomly
+        dataset = Dataset(**params)
+        dataset.train_set = D.Subset(dataset, partitions.train)
+        dataset.cv_set = D.Subset(dataset, partitions.cv)
+        dataset.test_set = D.Subset(dataset, partitions.test)
+
+        return dataset
+
+
+class DataLoader(D.DataLoader):
+    """
+    Any modifications to data batches go here
+
+    seq_len_first: True puts sequence size first in each batch, whereas the default is batch size
+    """
+
+    def __init__(self, *args, seq_len_first=False, **kwargs):
+        super(DataLoader, self).__init__(*args, **kwargs)
+        self.seq_len_first = seq_len_first
+
+    def __iter__(self):
+        for rgb, embs, names in super(DataLoader, self).__iter__():
+
+            # Sequence models expect sequence length to be the first dimension
+            if self.seq_len_first:
+                embs = embs.view(embs.shape[1], embs.shape[0], *embs.shape[2:])
+
+            yield rgb, embs, names

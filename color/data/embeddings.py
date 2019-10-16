@@ -19,7 +19,7 @@ def load_embeddings(size=50):
     """
     Load and process Glove word embeddings
     :param size: Length of each embedding. Must be in (50, 100, 200, 300)
-    :return: (Words as a Series, Embeddings as a Float Ndarray)
+    :return: Words as a Series of size num_colors, Embeddings as a Float Ndarray of shape (num_colors, embedding_length)
     """
     path = _get_embeddings_path(size)
     emb_df = pd.read_csv(path, sep=' ', engine='c', encoding='utf-8', quoting=csv.QUOTE_NONE, header=None)
