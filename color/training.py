@@ -65,9 +65,6 @@ class ModelTraining:
     def train(self):
         """Training loop for training and cross-validating the model"""
 
-        # Create data-loaders
-        train_loder = colors_dataset.DataLoader()
-
         for epoch in range(self.params['curr_epoch'], self.params['curr_epoch'] + self.params['num_epochs']):
 
             # Progress bar
@@ -164,7 +161,7 @@ class ModelTraining:
         else:
             log.warn('Model has no save method')
 
-        # Save
+        # Save dataset
         self.dataset.save(save_dir)
 
         # Save training params. Losses are being added to the parameters
