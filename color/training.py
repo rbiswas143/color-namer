@@ -6,6 +6,7 @@ import torch
 from log_utils import log
 import color.utils.progress as progress
 import color.utils.utils as utils
+import color.utils.plotter as plotter
 import color.data.dataset as colors_dataset
 
 
@@ -49,6 +50,12 @@ class ModelTraining:
         self.dataset = dataset
         self.train_loader = colors_dataset.DataLoader(dataset.train_set, self.params['seq_len_first'])
         self.cv_loader = colors_dataset.DataLoader(dataset.cv_set, self.params['seq_len_first'])
+
+        # Create a plotter
+        self.plotter = plotter.MSEPlotter(
+            name=None if model.params['name'] is None else model.params['name'],
+            env=self.params['plotter_env']
+        ) if self.params['draw_plots'] else None
 
         # Cache
         self.epoch_train_losses = []
@@ -130,8 +137,8 @@ class ModelTraining:
         raise NotImplementedError()
 
     def draw_plots(self, epoch):
-        """Draw model specific plots here"""
-        raise NotImplementedError()
+        """Plot training and cross-validation losses"""
+        self.plotter.plot(self.epoch_train_losses[epoch - 1], self.epoch_cv_losses[epoch - 1], epoch)
 
     def _validate(self):
         # Save directory must not exist, which otherwise implies that the model is already persisted

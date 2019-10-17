@@ -6,12 +6,13 @@ import torch.nn.functional as F
 
 import color.data.dataset as color_dataset
 import color.training as training
-import color.utils.plotter as plotter
 import color.utils.utils as utils
 from log_utils import log
 
 
 def load_model_params(save_dir, include_weights=True):
+    """Load model weights and hyper-parameters"""
+
     # Hyperparams
     params_path = os.path.join(save_dir, 'model_params.pickle')
     with open(params_path, 'rb') as x:
@@ -27,7 +28,7 @@ def load_model_params(save_dir, include_weights=True):
 
 
 class NamePredictorBaseModel(nn.Module):
-    """Base class for all name prediction models, encapsulating model, loss function and optimizer"""
+    """Abstract base class for all name prediction models, encapsulating model, loss function and optimizer"""
 
     def __init__(self):
         super(NamePredictorBaseModel, self).__init__()
@@ -41,7 +42,7 @@ class NamePredictorBaseModel(nn.Module):
             'momentum': 0.9,  # Momentum
             'weight_decay': 0.0001,  # L2 regularization
             'lr_decay': (2, 0.95),  # Learning rate decay
-            'loss_fn': 'MSE', # One of (MSE, MSE_stop_word)
+            'loss_fn': 'MSE',  # One of (MSE, MSE_stop_word)
         }
 
     def save(self, save_dir):
@@ -68,12 +69,16 @@ class NamePredictorBaseModel(nn.Module):
         if self.params['loss_fn'] == 'MSE':
             return nn.MSELoss()
         else:
-            # As the color name sequences are small, we can prevent the model from overfitting to the stop word vector
-            # by reducing the weight of the stop word vectors. Here, loss from stop words is scaled down by their frequency
+            # Since color name sequences are small, we can prevent the model from overfitting to the stop word vector by
+            # reducing the weight of the stop word vectors. Here, loss from stop words is scaled down by their frequency
             def _loss_fn(emb, emb_pred, num_stop_words):
                 loss = F.mse_loss(emb, emb_pred)
                 return loss + (F.mse_loss(emb[-1], emb_pred[-1]) / num_stop_words)
+
             return _loss_fn
+
+    def forward(self, *inputs):
+        raise NotImplementedError
 
 
 class NamePredictorSequenceModel(NamePredictorBaseModel):
@@ -114,7 +119,7 @@ class NamePredictorSequenceModel(NamePredictorBaseModel):
     def forward(self, rgb, emb):
         # Linear layer resizes rgb vector
         rgb2emb_out = self.rgb2emb(rgb)
-        rgb2emb_out = rgb2emb_out.reshape(1, *rgb2emb_out.shape) # Reshape to a single sequence embedding
+        rgb2emb_out = rgb2emb_out.reshape(1, *rgb2emb_out.shape)  # Reshape to a single sequence embedding
 
         # Prepare LSTM inputs
         # First time step input is the resized RGB vector, wheras the last word's embedding is not fed as input
@@ -127,22 +132,24 @@ class NamePredictorSequenceModel(NamePredictorBaseModel):
         return self.hidden2emb(rnn_out)
 
     def gen_name(self, rgb):
-        """This function can be used to generate multiple color name predictions"""
+        """
+        This function can be used as a co-routine to generate multiple color name predictions similar to Beam Search
+        """
 
         # Linear layer resizes RGB vector
         rgb2emb_out = self.rgb2emb(rgb)
-        rgb2emb_out = rgb2emb_out.reshape(1, *rgb2emb_out.shape) # Reshape to a single sequence embedding
-        
-        # Run first time step and store it as single item list which will later be used to store multiple outputs at each time step
-        outputs  = [self.rnn(emb)]
+        rgb2emb_out = rgb2emb_out.reshape(1, *rgb2emb_out.shape)  # Reshape to a single sequence embedding
 
-        # The following coroutine works towards generating color names
+        # Run first time step and store it as single item list which will later be used
+        # to store multiple outputs at each time step
+        outputs = [self.rnn(rgb2emb_out)]
+
+        # The following co-routine works towards generating color names
         # At each iteration new approximate word embeddings are predicted and returned
         # Exact word embeddings are received and the sequence processing continues
         while True:
-
-            # Process all RNN outputs on final linear layer and return the output embeddings and RNN states
-            # The received inputs is a list of tuples of word embeddings and RNN states
+            # Process all RNN outputs with final linear layer and return the output embeddings and RNN states
+            # The received inputs is a list of tuples of computed word embeddings and RNN states
             inputs = yield [(self.hidden2emb(rnn_out), rnn_state) for rnn_out, rnn_state in outputs]
 
             # Process each embedding with RNN
@@ -151,15 +158,6 @@ class NamePredictorSequenceModel(NamePredictorBaseModel):
 
 class NamePredictionTraining(training.ModelTraining):
     """Training workflow for all color name prediction models"""
-
-    def __init__(self, model, loss_fn, optimizer, dataset, **kwargs):
-        super(NamePredictionTraining, self).__init__(model, loss_fn, optimizer, dataset, **kwargs)
-
-        # Create a plotter
-        self.plotter = plotter.MSEPlotter(
-            name=None if model.params['name'] is None else model.params['name'],
-            env=self.params['plotter_env']
-        ) if self.params['draw_plots'] else None
 
     def epoch_results_message(self, epoch):
         return 'Epoch {} | Train Loss: {:2f} | CV Loss: {:2f} | Time: {}s'.format(
@@ -176,39 +174,37 @@ class NamePredictionTraining(training.ModelTraining):
         embedding_preds = self.model(rgb, embedding)
         return self.loss_fn(embedding, embedding_preds, len(self.dataset.cv_set))
 
-    def draw_plots(self, epoch):
-        """Plot training and cross-validation losses"""
-        self.plotter.plot(self.epoch_train_losses[epoch - 1], self.epoch_cv_losses[epoch - 1], epoch)
-
 
 def train():
-    """Test configuration"""
+    """Sample configuration"""
 
-    emb_dim = 200
-    dataset = color_dataset.Dataset(max_words=None, dataset='big', emb_len=emb_dim, normalize_rgb=True,
-                                    pad_len=None, batch_size=1, use_cuda=True, var_seq_len=True)
+    # Create dataset
+    emb_dim = 50
+    dataset = color_dataset.Dataset(dataset='big', emb_len=emb_dim)
 
-    model_key = 'lstm'
-    if model_key == 'lstm':
-        model = NamePredictorLSTM(emb_dim=emb_dim, hidden_dim=emb_dim, num_layers=1, dropout=0,
-                                  lr=0.1, momentum=0.9, weight_decay=0.0001,
-                                  name='LSTM_namer')
-        print(model)
-    else:
-        raise Exception('Invalid model key: {}'.format(model_key))
-
+    # Initialize model
+    model = NamePredictorSequenceModel(name='sample-lstm-model', model_type='LSTM')
     log.debug('Model: %s', model)
     log.debug('Model Params: %d', utils.get_trainable_params(model))
     loss_fn = model.get_loss_fn()
     optimizer = model.get_optimizer()
 
-    save_dir = utils.get_rel_path(__file__, '..', '..', 'trained_models',
-                                  '{}_{}'.format(model.params['name'], utils.get_unique_key()))
+    # Save directory
+    save_dir = utils.get_rel_path(
+        __file__, '..', '..', 'trained_models',  # Base directory
+        '{}_{}'.format(model.params['name'], utils.get_unique_key())  # Model directory
+    )
+
+    # Initialize model training
     trainer = NamePredictionTraining(
         model, loss_fn, optimizer, dataset,
-        num_epochs=20, draw_plots=True, show_progress=True,
-        use_cuda=True, save_dir=save_dir
+        num_epochs=10,
+        seq_len_first=True,
+        use_cuda=True,
+        save_dir=save_dir
     )
+
+    # Train and save
     trainer.train()
     trainer.save()
 
