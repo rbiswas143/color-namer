@@ -26,102 +26,136 @@ def load_model_params(save_dir, include_weights=True):
     return weights, params
 
 
-class NamePredictorBase(nn.Module):
+class NamePredictorBaseModel(nn.Module):
+    """Base class for all name prediction models, encapsulating model, loss function and optimizer"""
 
     def __init__(self):
-        super(NamePredictorBase, self).__init__()
+        super(NamePredictorBaseModel, self).__init__()
+
+        # Default model parameters
         self.params = {
-            'name': None,
-            'emb_dim': 50,
-            'color_dim': 3,  # But don't change
-            'lr': 0.1,
-            'momentum': 0.9,
-            'weight_decay': 0.0001,
-            'lr_decay': (2, 0.95),
+            'name': None,  # Model name
+            'emb_dim': 50,  # Embedding dimensions
+            'color_dim': 3,  # Color space dimensions, But don't change
+            'lr': 0.1,  # Learning rate
+            'momentum': 0.9,  # Momentum
+            'weight_decay': 0.0001,  # L2 regularization
+            'lr_decay': (2, 0.95),  # Learning rate decay
+            'loss_fn': 'MSE', # One of (MSE, MSE_stop_word)
         }
 
     def save(self, save_dir):
+        """Save the model and parameters"""
+
         # Model weights
         weights_path = os.path.join(save_dir, 'model_weights.pt')
         torch.save(self.state_dict(), weights_path)
 
-        # Hyperparams
+        # Hyper-parameters
         params_path = os.path.join(save_dir, 'model_params.pickle')
         with open(params_path, 'wb') as x:
             pickle.dump(self.params, x)
 
     def get_optimizer(self):
-        return torch.optim.SGD(self.parameters(), lr=self.params['lr'], momentum=self.params['momentum'],
-                               weight_decay=self.params['weight_decay'])
+        return torch.optim.SGD(
+            self.parameters(),
+            lr=self.params['lr'],
+            momentum=self.params['momentum'],
+            weight_decay=self.params['weight_decay']
+        )
 
     def get_loss_fn(self):
-        def _loss_fn(emb, emb_pred, stop_weight):
-            loss = F.mse_loss(emb, emb_pred)
-            return loss + (F.mse_loss(emb[-1], emb_pred[-1]) / stop_weight)
+        if self.params['loss_fn'] == 'MSE':
+            return nn.MSELoss()
+        else:
+            # As the color name sequences are small, we can prevent the model from overfitting to the stop word vector
+            # by reducing the weight of the stop word vectors. Here, loss from stop words is scaled down by their frequency
+            def _loss_fn(emb, emb_pred, num_stop_words):
+                loss = F.mse_loss(emb, emb_pred)
+                return loss + (F.mse_loss(emb[-1], emb_pred[-1]) / num_stop_words)
+            return _loss_fn
 
-        return _loss_fn
+
+class NamePredictorSequenceModel(NamePredictorBaseModel):
+    """RNN model for color name predictions"""
+
+    def __init__(self, **kwargs):
+        super(NamePredictorSequenceModel, self).__init__()
+
+        # RNN model defaults
+        self.params.update({
+            'name': 'rnn-name-predictor',  # Model name
+            'model_type': 'RNN',  # One of (RNN, LSTM)
+            'hidden_dim': 50,  # No of neurons in each hidden layer
+            'num_layers': 2,  # No of hidden layers
+            'dropout': 0,  # Dropout factor
+            'nonlinearity': 'relu'  # Only for RNN: Activation function: tanh, relu
+        })
+        utils.dict_update_existing(self.params, kwargs)
+
+        # A linear layer converts RGB value to a vector of the same length as the embeddings
+        self.rgb2emb = nn.Linear(self.params['color_dim'], self.params['emb_dim'])
+
+        # RNN Layer
+        if self.params['model_type'] == 'RNN':
+            self.rnn = nn.RNN(
+                self.params['emb_dim'], self.params['hidden_dim'], num_layers=self.params['num_layers'],
+                dropout=self.params['dropout'], nonlinearity=self.params['nonlinearity']
+            )
+        else:
+            self.rnn = nn.LSTM(
+                self.params['emb_dim'], self.params['hidden_dim'],
+                num_layers=self.params['num_layers'], dropout=self.params['dropout']
+            )
+
+        # Final linear layer converts RNN output to output embeddings
+        self.hidden2emb = nn.Linear(self.params['hidden_dim'], self.params['emb_dim'])
 
     def forward(self, rgb, emb):
+        # Linear layer resizes rgb vector
         rgb2emb_out = self.rgb2emb(rgb)
-        rgb2emb_out = rgb2emb_out.reshape(1, *rgb2emb_out.shape)
+        rgb2emb_out = rgb2emb_out.reshape(1, *rgb2emb_out.shape) # Reshape to a single sequence embedding
+
+        # Prepare LSTM inputs
+        # First time step input is the resized RGB vector, wheras the last word's embedding is not fed as input
         emb = torch.cat((rgb2emb_out, emb[:-1]), dim=0)
 
-        seq_nn = self.lstm if hasattr(self, 'lstm') else self.rnn
-        seq_nn_out = seq_nn(emb)
+        # Process color name with RNN
+        rnn_out, _ = self.rnn(emb)
 
-        return self.hidden2emb(seq_nn_out[0])
+        # Convert RNN output to output embedding
+        return self.hidden2emb(rnn_out)
 
     def gen_name(self, rgb):
+        """This function can be used to generate multiple color name predictions"""
+
+        # Linear layer resizes RGB vector
         rgb2emb_out = self.rgb2emb(rgb)
-        rgb2emb_out = rgb2emb_out.reshape(1, *rgb2emb_out.shape)
-        seq_nn = self.lstm if hasattr(self, 'lstm') else self.rnn
-        seq_nn_out, seq_nn_state = seq_nn(rgb2emb_out)
+        rgb2emb_out = rgb2emb_out.reshape(1, *rgb2emb_out.shape) # Reshape to a single sequence embedding
+        
+        # Run first time step and store it as single item list which will later be used to store multiple outputs at each time step
+        outputs  = [self.rnn(emb)]
 
+        # The following coroutine works towards generating color names
+        # At each iteration new approximate word embeddings are predicted and returned
+        # Exact word embeddings are received and the sequence processing continues
         while True:
-            emb = yield self.hidden2emb(seq_nn_out[0])
-            seq_nn_out, seq_nn_state = seq_nn(emb, seq_nn_state)
 
+            # Process all RNN outputs on final linear layer and return the output embeddings and RNN states
+            # The received inputs is a list of tuples of word embeddings and RNN states
+            inputs = yield [(self.hidden2emb(rnn_out), rnn_state) for rnn_out, rnn_state in outputs]
 
-class NamePredictorLSTM(NamePredictorBase):
-
-    def __init__(self, **kwargs):
-        super(NamePredictorLSTM, self).__init__()
-        self.params.update({
-            'name': 'LSTM',
-            'hidden_dim': 50,
-            'num_layers': 2,
-            'dropout': 0,
-        })
-        utils.dict_update_existing(self.params, kwargs)
-
-        self.linear = nn.Linear(self.params['color_dim'], self.params['emb_dim'])
-        self.lstm = nn.LSTM(self.params['emb_dim'], self.params['hidden_dim'],
-                            num_layers=self.params['num_layers'], dropout=self.params['dropout'])
-
-
-class NamePredictorRNN(NamePredictorBase):
-
-    def __init__(self, **kwargs):
-        super(NamePredictorRNN, self).__init__()
-        self.params.update({
-            'name': 'RNN',
-            'hidden_dim': 50,
-            'num_layers': 2,
-            'dropout': 0,
-            'nonlinearity': 'relu'
-        })
-        utils.dict_update_existing(self.params, kwargs)
-
-        self.rgb2emb = nn.Linear(self.params['color_dim'], self.params['emb_dim'])
-        self.rnn = nn.RNN(self.params['emb_dim'], self.params['hidden_dim'],
-                          num_layers=self.params['num_layers'], dropout=self.params['dropout'])
-        self.hidden2emb = nn.Linear(self.params['hidden_dim'], self.params['emb_dim'])
+            # Process each embedding with RNN
+            outputs = [self.rnn(emb, rnn_state) for emb, rnn_state in inputs]
 
 
 class NamePredictionTraining(training.ModelTraining):
+    """Training workflow for all color name prediction models"""
 
     def __init__(self, model, loss_fn, optimizer, dataset, **kwargs):
         super(NamePredictionTraining, self).__init__(model, loss_fn, optimizer, dataset, **kwargs)
+
+        # Create a plotter
         self.plotter = plotter.MSEPlotter(
             name=None if model.params['name'] is None else model.params['name'],
             env=self.params['plotter_env']
@@ -129,7 +163,10 @@ class NamePredictionTraining(training.ModelTraining):
 
     def epoch_results_message(self, epoch):
         return 'Epoch {} | Train Loss: {:2f} | CV Loss: {:2f} | Time: {}s'.format(
-            epoch, self.epoch_train_losses[epoch - 1], self.epoch_cv_losses[epoch - 1], self.epoch_durations[epoch - 1])
+            epoch, self.epoch_train_losses[epoch - 1],
+            self.epoch_cv_losses[epoch - 1],
+            self.epoch_durations[epoch - 1]
+        )
 
     def train_batch(self, rgb, embedding, _):
         embedding_preds = self.model(rgb, embedding)
@@ -140,10 +177,13 @@ class NamePredictionTraining(training.ModelTraining):
         return self.loss_fn(embedding, embedding_preds, len(self.dataset.cv_set))
 
     def draw_plots(self, epoch):
+        """Plot training and cross-validation losses"""
         self.plotter.plot(self.epoch_train_losses[epoch - 1], self.epoch_cv_losses[epoch - 1], epoch)
 
 
 def train():
+    """Test configuration"""
+
     emb_dim = 200
     dataset = color_dataset.Dataset(max_words=None, dataset='big', emb_len=emb_dim, normalize_rgb=True,
                                     pad_len=None, batch_size=1, use_cuda=True, var_seq_len=True)

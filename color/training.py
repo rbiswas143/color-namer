@@ -6,6 +6,7 @@ import torch
 from log_utils import log
 import color.utils.progress as progress
 import color.utils.utils as utils
+import color.data.dataset as colors_dataset
 
 
 def load_training_params(save_dir):
@@ -26,6 +27,7 @@ class ModelTraining:
             'draw_plots': True,  # Draw plots or not
             'show_progress': True,  # Render command line progress bar or not
             'do_cv': True,  # Do cross-validation or not
+            'seq_len_first': False,  # Sequence models expect sequence length before batch along the axes
             'use_cuda': True,  # Use GPU or not
             'save_dir': None,  # Existing directory where the model will be saved
             'plotter_env': None,  # Vizdom environment in which to render the plots
@@ -43,8 +45,10 @@ class ModelTraining:
         self.loss_fn = loss_fn
         self.optimizer = optimizer
 
-        # Dataset
+        # Dataset and loaders
         self.dataset = dataset
+        self.train_loader = colors_dataset.DataLoader(dataset.train_set, self.params['seq_len_first'])
+        self.cv_loader = colors_dataset.DataLoader(dataset.cv_set, self.params['seq_len_first'])
 
         # Cache
         self.epoch_train_losses = []
@@ -53,6 +57,9 @@ class ModelTraining:
 
     def train(self):
         """Training loop for training and cross-validating the model"""
+
+        # Create data-loaders
+        train_loder = colors_dataset.DataLoader()
 
         for epoch in range(self.params['curr_epoch'], self.params['curr_epoch'] + self.params['num_epochs']):
 
@@ -67,7 +74,7 @@ class ModelTraining:
 
             # Train
             loss_sum = 0
-            for i, batch in enumerate(self.dataset.train_loader):
+            for i, batch in enumerate(self.train_loader):
                 self.model.zero_grad()
                 loss = self.train_batch(*batch)
                 loss_sum += loss
@@ -86,7 +93,7 @@ class ModelTraining:
             if self.params['do_cv']:
                 with torch.no_grad():
                     loss_sum = 0
-                    for i, batch in enumerate(self.dataset.cv_loader):
+                    for i, batch in enumerate(self.cv_loader):
                         loss = self.cv_batch(*batch)
                         loss_sum += loss
 
