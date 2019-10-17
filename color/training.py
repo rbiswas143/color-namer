@@ -125,8 +125,12 @@ class ModelTraining:
                 self.draw_plots(epoch)
 
     def epoch_results_message(self, epoch):
-        """Default progress bar message on epoch completion"""
-        return 'Epoch {} | Time: {}s'.format(epoch, self.epoch_durations[epoch])
+        return 'Epoch {} | Train Loss: {:2f} | CV Loss: {:2f} | Time: {}s'.format(
+            epoch,
+            self.epoch_train_losses[epoch - 1],
+            self.epoch_cv_losses[epoch - 1],
+            self.epoch_durations[epoch - 1]
+        )
 
     def train_batch(self, *args):
         """Override to define the computations for training a batch of data and return the loss"""
