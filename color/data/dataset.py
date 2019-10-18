@@ -2,6 +2,7 @@ import os
 import pickle
 from collections import namedtuple
 import numpy as np
+import torch
 import torch.utils.data as D
 
 from log_utils import log
@@ -90,6 +91,10 @@ class Dataset(D.Dataset):
         if self.params['normalize_rgb']:
             log.debug('Normalizing colors')
             self.color_rgb = self.color_rgb / 256
+        else:
+            # Cast to double anyway
+            self.color_rgb = self.color_rgb.astype(np.float64)
+
 
         # Load embeddings
         log.info('Loading embeddings')
@@ -215,9 +220,10 @@ class DataLoader(D.DataLoader):
     seq_len_first: True puts sequence size first in each batch, whereas the default is batch size
     """
 
-    def __init__(self, *args, seq_len_first=False, **kwargs):
+    def __init__(self, *args, seq_len_first=False, use_cuda=False, **kwargs):
         super(DataLoader, self).__init__(*args, **kwargs)
         self.seq_len_first = seq_len_first
+        self.device = torch.device('cuda' if use_cuda else 'cpu')
 
     def __iter__(self):
         for rgb, embs, names in super(DataLoader, self).__iter__():
@@ -225,5 +231,9 @@ class DataLoader(D.DataLoader):
             # Sequence models expect sequence length to be the first dimension
             if self.seq_len_first:
                 embs = embs.view(embs.shape[1], embs.shape[0], *embs.shape[2:])
+
+            # Move tensors to CPU/GPU
+            rgb = rgb.to(self.device)
+            embs = embs.to(self.device)
 
             yield rgb, embs, names

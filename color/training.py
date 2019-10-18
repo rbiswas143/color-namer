@@ -48,8 +48,16 @@ class ModelTraining:
 
         # Dataset and loaders
         self.dataset = dataset
-        self.train_loader = colors_dataset.DataLoader(dataset.train_set, self.params['seq_len_first'])
-        self.cv_loader = colors_dataset.DataLoader(dataset.cv_set, self.params['seq_len_first'])
+        self.train_loader = colors_dataset.DataLoader(
+            dataset.train_set,
+            seq_len_first=self.params['seq_len_first'],
+            use_cuda = self.params['use_cuda']
+        )
+        self.cv_loader = colors_dataset.DataLoader(
+            dataset.cv_set,
+            seq_len_first=self.params['seq_len_first'],
+            use_cuda = self.params['use_cuda']
+        )
 
         # Create a plotter
         self.plotter = plotter.MSEPlotter(

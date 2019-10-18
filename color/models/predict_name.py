@@ -104,7 +104,7 @@ class NamePredictorSequenceModel(NamePredictorBaseModel):
 
         # Run first time step and store it as single item list which will later be used
         # to store multiple outputs at each time step
-        outputs = [self.rnn(rgb2emb_out)]
+        rnn_out, rnn_state = self.rnn(rgb2emb_out)
 
         # The following co-routine works towards generating color names
         # At each iteration new approximate word embeddings are predicted and returned
@@ -112,10 +112,10 @@ class NamePredictorSequenceModel(NamePredictorBaseModel):
         while True:
             # Process all RNN outputs with final linear layer and return the output embeddings and RNN states
             # The received inputs is a list of tuples of computed word embeddings and RNN states
-            inputs = yield [(self.hidden2emb(rnn_out), rnn_state) for rnn_out, rnn_state in outputs]
+            emb, rnn_state = yield self.hidden2emb(rnn_out), rnn_state
 
             # Process each embedding with RNN
-            outputs = [self.rnn(emb, rnn_state) for emb, rnn_state in inputs]
+            rnn_out, rnn_state = self.rnn(emb, rnn_state)
 
 
 class NamePredictionTraining(training.ModelTraining):
