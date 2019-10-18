@@ -34,7 +34,7 @@ class NamePredictorBaseModel(model_utils.BaseModel):
             # Since color name sequences are small, we can prevent the model from overfitting to the stop word vector by
             # reducing the weight of the stop word vectors. Here, loss from stop words is scaled down by their frequency
             def _loss_fn(emb, emb_pred, num_stop_words):
-                loss = F.mse_loss(emb, emb_pred)
+                loss = F.mse_loss(emb[:-1], emb_pred[:-1])
                 return loss + (F.mse_loss(emb[-1], emb_pred[-1]) / num_stop_words)
 
             return _loss_fn
@@ -120,11 +120,82 @@ class NamePredictionTraining(training.ModelTraining):
 
     def train_batch(self, rgb, embedding, _):
         embedding_preds = self.model(rgb, embedding)
-        return self.loss_fn(embedding, embedding_preds, len(self.dataset.train_set))
+
+        # Check the loss function type and pass stop word weight
+        args = [embedding, embedding_preds]
+        if self.model.params['loss_fn'] == 'MSE_stop_word':
+            args.append(len(self.dataset.train_set))
+
+        return self.loss_fn(*args)
 
     def cv_batch(self, rgb, embedding, _):
         embedding_preds = self.model(rgb, embedding)
-        return self.loss_fn(embedding, embedding_preds, len(self.dataset.cv_set))
+
+        # Check the loss function type and pass stop word weight
+        args = [embedding, embedding_preds]
+        if self.model.params['loss_fn'] == 'MSE_stop_word':
+            args.append(len(self.dataset.cv_set))
+
+        return self.loss_fn(*args)
+
+
+class NamePrediction:
+
+    def __init__(self, words, last_emb, similarity):
+        self.words = words
+        self.last_emb = last_emb
+        self.similarity = similarity
+        self.emb_pred = None
+        self.nn_state = None
+
+
+def predict_names(model, dataset, rgb, num_names=3, max_len=6, stop_word=False, normalize_rgb=True):
+    """Predicts a number of names for the specified color RGB value"""
+
+    # Covert RGB value to to input tensor and optionally normalize it
+    rgb = torch.DoubleTensor(rgb).view(1, 3)
+    if normalize_rgb:
+        rgb = rgb / 256
+
+    with torch.no_grad():
+
+        # Create a generator instance
+        name_generator = model.gen_name(rgb)
+
+        # Compute norm of each embedding vector
+        embs = torch.DoubleTensor(dataset.embeddings)
+        embs_mag = torch.sqrt(torch.sum(embs * embs, dim=1)).reshape(-1)
+
+        # A list of selected word embeddings that will be sent to the generator
+        # Before the first time step, no predictions exist
+        predictions = [NamePrediction([], None, 0)]
+        predictions[0].emb_pred, predictions[0].nn_state = next(name_generator)
+
+        for i in range(max_len):
+
+            pred_candidates = []
+            for pred in predictions:
+
+                emb_pred_mag = torch.sqrt(torch.sum(pred.emb_pred * pred.emb_pred))
+                emb_dot = torch.mm(embs, pred.emb_pred.view(-1, 1)).view(-1)
+                embs_sim = emb_dot / (embs_mag * emb_pred_mag)
+
+                _, top_idx = torch.topk(embs_sim, num_names)
+                for idx in top_idx.tolist():
+                    curr_words = pred.words[:]
+                    curr_words.append(dataset.vocab[idx])
+
+                    last_emb = embs[idx].view(1, 1, -1)
+                    sim = (embs_sim[idx] + (len(pred.words) * pred.similarity)) / len(curr_words)
+                    pred_candidates.append(NamePrediction(curr_words, last_emb, sim))
+
+            pred_candidates.sort(key=lambda pred: pred.similarity, reverse=True)
+            predictions = pred_candidates[:num_names]
+
+            for pred in predictions:
+                pred.emb_pred, pred.nn_state = name_generator.send((pred.last_emb, pred.nn_state))
+
+        return predictions
 
 
 def train():

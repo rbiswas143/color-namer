@@ -6,7 +6,7 @@ _model_dict = {
         (predict_color_models.ColorPredictorSequenceModel, predict_color_models.ColorPredictionTraining),
 
     'predict_color_cnn':
-        (predict_color_models.ColorPredictorSequenceModel, predict_color_models.ColorPredictionTraining),
+        (predict_color_models.ColorPredictorCNNModel, predict_color_models.ColorPredictionTraining),
 
     'predict_name_rnn':
         (predict_name_models.NamePredictorSequenceModel, predict_name_models.NamePredictionTraining),

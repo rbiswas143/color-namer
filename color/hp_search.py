@@ -17,7 +17,7 @@ def run_models(hp_config, hp_dir_base):
     dataset = color_dataset.Dataset(**hp_config.params['dataset_params'])
 
     # Fetch the model and training classes
-    model_class, training_class = models.get_model(**hp_config.params['model_key'])
+    model_class, training_class = models.get_model(hp_config.params['model_key'])
 
     # Train models
     for i, model_params in enumerate(hp_config.params['model_params']):
@@ -81,7 +81,7 @@ if __name__ == '__main__':
     # Hyper-parameter search data is stored under trained_models/hp
     # Supply a unique name to the current process
     hp_dir_base = utils.get_rel_path(__file__, '..', 'trained_models', 'hp')
-    run_name = 'predict_name_rnn'
+    run_name = 'predict_color_cnn_hp1'
 
     # Load configuration (generated using notebook)
     config_path = os.path.join(hp_dir_base, run_name, 'hp_config.pickle')

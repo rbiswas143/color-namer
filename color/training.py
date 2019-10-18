@@ -42,7 +42,7 @@ class ModelTraining:
         self.device = torch.device('cuda' if self.params['use_cuda'] else 'cpu')
 
         # Model
-        self.model = model.to(self.device)
+        self.model = model.double().to(self.device)
         self.loss_fn = loss_fn
         self.optimizer = optimizer
 
