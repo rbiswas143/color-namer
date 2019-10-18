@@ -139,18 +139,17 @@ class NamePredictionTraining(training.ModelTraining):
         return self.loss_fn(*args)
 
 
-class NamePrediction:
-
-    def __init__(self, words, last_emb, similarity):
-        self.words = words
-        self.last_emb = last_emb
-        self.similarity = similarity
-        self.emb_pred = None
-        self.nn_state = None
-
-
 def predict_names(model, dataset, rgb, num_names=3, max_len=6, stop_word=False, normalize_rgb=True):
     """Predicts a number of names for the specified color RGB value"""
+
+    class NamePrediction:
+
+        def __init__(self, words, last_emb, similarity):
+            self.words = words
+            self.last_emb = last_emb
+            self.similarity = similarity
+            self.emb_pred = None
+            self.nn_state = None
 
     # Covert RGB value to to input tensor and optionally normalize it
     rgb = torch.DoubleTensor(rgb).view(1, 3)

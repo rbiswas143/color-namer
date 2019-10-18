@@ -133,13 +133,10 @@ class Dataset(D.Dataset):
 
                 # Determine number of padding words needed
                 pad_len = self.params['pad_len'] - emb_len
-                print('padlen', pad_len, emb_len, self.params['pad_len'])
 
                 # Pad with zeros
                 if pad_len > 0:
-                    print('before', self.color_name_embs[i].shape)
                     self.color_name_embs[i] = np.pad(self.color_name_embs[i], ((0, pad_len), (0, 0)), 'constant')
-                    print('afters', self.color_name_embs[i].shape)
 
         # Create train, cv and test partitions
         if self.params['create_partitions']:
