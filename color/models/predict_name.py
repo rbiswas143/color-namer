@@ -94,27 +94,24 @@ class NamePredictorSequenceModel(NamePredictorBaseModel):
         return self.hidden2emb(rnn_out)
 
     def gen_name(self, rgb):
-        """
-        This function can be used as a co-routine to generate multiple color name predictions similar to Beam Search
-        """
+        """This function can be used as a co-routine to generate color name predictions"""
 
         # Linear layer resizes RGB vector
         rgb2emb_out = self.rgb2emb(rgb)
         rgb2emb_out = rgb2emb_out.reshape(1, *rgb2emb_out.shape)  # Reshape to a single sequence embedding
 
-        # Run first time step and store it as single item list which will later be used
-        # to store multiple outputs at each time step
+        # First time step - process transformed RGB vector
         rnn_out, rnn_state = self.rnn(rgb2emb_out)
 
         # The following co-routine works towards generating color names
-        # At each iteration new approximate word embeddings are predicted and returned
-        # Exact word embeddings are received and the sequence processing continues
+        # At each iteration a new approximate word embedding is predicted and returned
+        # An exact word embedding is received and the sequence processing continues
         while True:
-            # Process all RNN outputs with final linear layer and return the output embeddings and RNN states
-            # The received inputs is a list of tuples of computed word embeddings and RNN states
+            # Process RNN output with final linear layer and return the output embedding and RNN state
+            # The received input is a tuples of computed word embedding and RNN state
             emb, rnn_state = yield self.hidden2emb(rnn_out), rnn_state
 
-            # Process each embedding with RNN
+            # Process embedding with RNN
             rnn_out, rnn_state = self.rnn(emb, rnn_state)
 
 

@@ -70,7 +70,7 @@ class Dataset(D.Dataset):
             'dataset': 'big',  # Color dataset type: 'small', 'big'
             'emb_len': 50,  # Glove embedding length: 50, 100, 200, 300
 
-            'normalize_rgb': False,  # Should the rgb values be normalized
+            'normalize_rgb': True,  # Should the rgb values be normalized
             'max_words': None,  # Restrict no of words in colors dataset
             'pad_len': None,  # To train variable length sequences in batches, we can pad them to same length
             'add_stop_word': False,  # Stop word embedding is added to each color name embedding and embedding matrix
@@ -92,7 +92,7 @@ class Dataset(D.Dataset):
             log.debug('Normalizing colors')
             self.color_rgb = self.color_rgb / 256
         else:
-            # Cast to double anyway
+            # Ensure dtype is double
             self.color_rgb = self.color_rgb.astype(np.float64)
 
 
