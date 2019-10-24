@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -17,12 +18,12 @@ class ColorPredictorBaseModel(model_utils.BaseModel):
         # Default model parameters
         self.params = {
             'name': None,  # Model name
-            'emb_dim': 50,  # Embedding dimensions
+            'emb_dim': 200,  # Embedding dimensions
             'color_dim': 3,  # Color space dimensions, But don't change
-            'lr': 0.1,  # Learning rate
-            'momentum': 0.9,  # Momentum
-            'weight_decay': 0.0001,  # L2 regularization
-            'lr_decay': (2, 0.95),  # Learning rate decay
+            'lr': 0.006,  # Learning rate
+            'momentum': 0.85,  # Momentum
+            'weight_decay': 1e-05,  # L2 regularization
+            'lr_decay': (3, 0.96),  # Learning rate decay
         }
 
     def forward(self, *inputs):
@@ -85,12 +86,12 @@ class ColorPredictorCNNModel(ColorPredictorBaseModel):
         self.params.update({
             'name': 'cnn-color-predictor',  # Model name
             'max_words': 3,  # Fixed size of each word embedding sequence
-            'num_conv_layers': 2,  # No of convolution layers
-            'conv_kernel_size': 3,  # Convolution kernel size
-            'conv_stride': 1,  # Convolution stride
-            'pool_kernel_size': 2,  # Pooling kernel size
-            'pool_stride': 2,  # Pooling stride
-            'num_linear_layers': 1,  # No of trailing linear layers
+            'num_conv_layers': 3,  # No of convolution layers
+            'conv_kernel_size': 5,  # Convolution kernel size
+            'conv_stride': 2,  # Convolution stride
+            'pool_kernel_size': 7,  # Pooling kernel size
+            'pool_stride': 1,  # Pooling stride
+            'num_linear_layers': 2,  # No of trailing linear layers
             'linear_size_reduce': 2,  # Factor by which size of trailing linear layers are successively reduced
         })
         utils.dict_update_existing(self.params, kwargs)
@@ -186,6 +187,39 @@ class ColorPredictionTraining(training.ModelTraining):
         return self.loss_fn(rgb, rgb_preds)
 
 
+def predict_colors(model, dataset, color_names, seq_len_first=False):
+    """Predicts color RGB values for a list of color names"""
+
+    # Convert color names to embeddings
+    color_name_embs = []
+    for name in color_names:
+        emb = color_dataset.to_embeddings(name, dataset.vocab_dict, dataset.embeddings)
+
+        # Optional padding if required
+        pad_len = dataset.params['pad_len']
+        if pad_len is not None:
+            if emb.shape[0] <= pad_len:
+                emb = np.pad(emb, ((0, pad_len - emb.shape[0]), (0, 0)), 'constant')
+            else:
+                raise AssertionError('Color name is longer than pad length')
+
+        # Sequence/Batch first
+        if seq_len_first:
+            emb = emb.reshape(emb.shape[0], 1, -1)
+        else:
+            emb = emb.reshape(1, emb.shape[0], -1)
+
+        color_name_embs.append(torch.DoubleTensor(emb))
+
+    # Predict RGB
+    with torch.no_grad():
+        preds = []
+        for emb in color_name_embs:
+            pred_rgb = model(emb)
+            preds.append(torch.Tensor.tolist(pred_rgb.view(-1)))
+        return preds
+
+
 def train_rnn():
     """Sample configurations"""
 
@@ -211,24 +245,27 @@ def train_rnn():
         model, loss_fn, optimizer, dataset,
         num_epochs=10,
         seq_len_first=True,
-        use_cuda=True,
+        use_cuda=False,
         save_dir=save_dir
     )
 
     # Train and save
-    trainer.train()
-    trainer.save()
+    try:
+        trainer.train()
+    except:
+        log.exception('Training failed')
+    finally:
+        trainer.save()
 
 
 def train_cnn():
     """Sample configurations"""
 
     # Create dataset
-    emb_dim = 50
+    emb_dim = 200
     dataset = color_dataset.Dataset(
         dataset='big',
         emb_len=emb_dim,
-        normalize_rgb=True,
         max_words=3,
         pad_len=3,
     )
@@ -249,20 +286,19 @@ def train_cnn():
     # Initialize model training
     trainer = ColorPredictionTraining(
         model, loss_fn, optimizer, dataset,
-        num_epochs=10,
-        use_cuda=True,
+        num_epochs=20,
+        use_cuda=False,
         save_dir=save_dir
     )
 
     # Train and save
-    trainer.train()
-    trainer.save()
+    try:
+        trainer.train()
+    except:
+        log.exception('Training failed')
+    finally:
+        trainer.save()
 
 
 if __name__ == '__main__':
-    try:
-        train_rnn()
-        # train_cnn()
-    except Exception:
-        log.exception('Training failed')
-        raise
+    train_cnn()

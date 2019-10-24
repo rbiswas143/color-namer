@@ -1,6 +1,7 @@
 import color.models.predict_color as predict_color_models
 import color.models.predict_name as predict_name_models
 
+# This mapping can be used to fetch the model and trainer classes using a key for the model
 _model_dict = {
     'predict_color_rnn':
         (predict_color_models.ColorPredictorSequenceModel, predict_color_models.ColorPredictionTraining),

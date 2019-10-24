@@ -139,7 +139,7 @@ class NamePredictionTraining(training.ModelTraining):
         return self.loss_fn(*args)
 
 
-def predict_names(model, dataset, rgb, num_names=3, max_len=6, stop_word=False, normalize_rgb=True):
+def predict_names(model, dataset, rgb, num_names=3, max_len=6, normalize_rgb=True):
     """Predicts a number of names for the specified color RGB value"""
 
     class NamePrediction:
@@ -150,8 +150,10 @@ def predict_names(model, dataset, rgb, num_names=3, max_len=6, stop_word=False, 
             self.similarity = similarity
             self.emb_pred = None
             self.nn_state = None
+            self.has_stopped = False
 
-    # Covert RGB value to to input tensor and optionally normalize it
+        # Covert RGB value to to input tensor and optionally normalize it
+
     rgb = torch.DoubleTensor(rgb).view(1, 3)
     if normalize_rgb:
         rgb = rgb / 256
@@ -168,30 +170,52 @@ def predict_names(model, dataset, rgb, num_names=3, max_len=6, stop_word=False, 
         # A list of selected word embeddings that will be sent to the generator
         # Before the first time step, no predictions exist
         predictions = [NamePrediction([], None, 0)]
+
+        # First time step
         predictions[0].emb_pred, predictions[0].nn_state = next(name_generator)
 
+        # Identify "num_names" best matches of max length "max_len"
         for i in range(max_len):
-
             pred_candidates = []
+
+            # For each predicted embedding select top "num_names" matches as candidates for best match
             for pred in predictions:
 
+                # Skip if stop word has already been encountered
+                if pred.has_stopped:
+                    pred_candidates.append(pred)
+                    continue
+
+                # Compute similarity of predicted embedding with all word embeddings
                 emb_pred_mag = torch.sqrt(torch.sum(pred.emb_pred * pred.emb_pred))
                 emb_dot = torch.mm(embs, pred.emb_pred.view(-1, 1)).view(-1)
                 embs_sim = emb_dot / (embs_mag * emb_pred_mag)
 
+                # Pick top "num_names" matches
                 _, top_idx = torch.topk(embs_sim, num_names)
                 for idx in top_idx.tolist():
                     curr_words = pred.words[:]
-                    curr_words.append(dataset.vocab[idx])
+                    next_word = dataset.vocab[idx]
+                    if next_word != 'STOP_WORD':  # Don't add stop word to color name
+                        curr_words.append(next_word)
 
+                    # Compute similarity score of entire color name till now
                     last_emb = embs[idx].view(1, 1, -1)
                     sim = (embs_sim[idx] + (len(pred.words) * pred.similarity)) / len(curr_words)
-                    pred_candidates.append(NamePrediction(curr_words, last_emb, sim))
 
+                    # Add as candidate
+                    pred = NamePrediction(curr_words, last_emb, sim)
+                    pred.has_stopped = next_word == 'STOP_WORD'
+                    pred_candidates.append(pred)
+
+            # Keep top "num_names" candidates
             pred_candidates.sort(key=lambda pred: pred.similarity, reverse=True)
             predictions = pred_candidates[:num_names]
 
+            # For each candidate, perform the next time step
             for pred in predictions:
+                if pred.has_stopped:  # Skip computations if stop word has been encountered
+                    continue
                 pred.emb_pred, pred.nn_state = name_generator.send((pred.last_emb, pred.nn_state))
 
         return predictions
@@ -227,13 +251,13 @@ def train():
     )
 
     # Train and save
-    trainer.train()
-    trainer.save()
+    try:
+        trainer.train()
+    except:
+        log.exception('Training failed')
+    finally:
+        trainer.save()
 
 
 if __name__ == '__main__':
-    try:
-        train()
-    except Exception:
-        log.exception('Training failed')
-        raise
+    train()
