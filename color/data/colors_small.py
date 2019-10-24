@@ -1,3 +1,8 @@
+"""
+1000+ colors from Sherwin Williams's collection of colors
+https://images.sherwin-williams.com/content_images/sw-colors-name-csp-acb.acb
+"""
+
 import os
 import json
 import re

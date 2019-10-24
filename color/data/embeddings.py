@@ -1,6 +1,10 @@
+"""
+6B word embeddings from GloVe
+http://nlp.stanford.edu/data/glove.6B.zip
+"""
+
 import os
 import csv
-import numpy as np
 import pandas as pd
 
 

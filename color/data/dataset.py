@@ -62,6 +62,7 @@ def load_dataset_params(save_dir):
 
 
 class Dataset(D.Dataset):
+    """Represents a trainable dataset and encapsulates all pre-processing tasks"""
 
     def __init__(self, **kwargs):
 
@@ -215,7 +216,6 @@ class Dataset(D.Dataset):
 class DataLoader(D.DataLoader):
     """
     Any modifications to data batches go here
-
     seq_len_first: True puts sequence size first in each batch, whereas the default is batch size
     """
 

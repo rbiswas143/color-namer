@@ -1,3 +1,8 @@
+"""
+Dictionary of 18,000+ handpicked colors from various sources
+https://github.com/meodai/color-names
+"""
+
 import os
 import json
 
