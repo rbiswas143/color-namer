@@ -11,6 +11,7 @@ import color.data.dataset as colors_dataset
 
 
 def load_training_params(save_dir):
+    """Load model training parameter and losses from a model directory"""
     full_path = os.path.join(save_dir, 'training_params.pickle')
     with open(full_path, 'rb') as x:
         return pickle.load(x)
